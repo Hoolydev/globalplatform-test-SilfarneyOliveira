@@ -1,0 +1,481 @@
+{
+  "name": "Global Platform - Agente Campanhas WhatsApp",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Global Platform - Agente Analista + Q&A\n\n**Fluxo 1 — Análise automática:**\nGoogle Drive → CSV → Regras → LLM → WhatsApp\n\n**Fluxo 2 — Webhook frontend:**\nFrontend envia CSV → análise → retorna JSON + envia WhatsApp\n\n**Fluxo 3 — Agente Q&A WhatsApp:**\nUazapi envia mensagem → preparar → verificar → Agente IA nativo (OpenAI + Postgres Memory) → responde via Uazapi\n\n**Fluxo 4 — Configurações:**\nWebhook salva número destino e settings\n\nCredenciais: Google Drive `Conta Silfrancys92` e Uazapi `Uazapi Pointer Imoveis`.",
+        "height": 400,
+        "width": 560,
+        "color": 5
+      },
+      "id": "0d0bedce-336c-437b-a6fd-44cd6043f3d1",
+      "name": "Como funciona",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-1200, -560]
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [{ "mode": "everyMinute" }]
+        },
+        "triggerOn": "specificFolder",
+        "folderToWatch": "1hTa7qbltatnIc1hS9Z1-6D1OdCVK-KM-",
+        "event": "fileCreated",
+        "options": {}
+      },
+      "id": "82581ec1-d93b-435f-a0bb-23814fa034e2",
+      "name": "Google Drive - novo CSV",
+      "type": "n8n-nodes-base.googleDriveTrigger",
+      "typeVersion": 1,
+      "position": [-656, -16],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "H3MFyRH1kvygZUk9",
+          "name": "Conta Silfrancys92"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.id }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "f3eb417b-8720-4ca9-93c0-b11dbeffd251",
+      "name": "Baixar CSV",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [-416, -16],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "H3MFyRH1kvygZUk9",
+          "name": "Conta Silfrancys92"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "toJson"
+      },
+      "id": "5f5def90-c13c-470b-84cc-a689e03ac6c2",
+      "name": "Ler CSV",
+      "type": "n8n-nodes-base.spreadsheetFile",
+      "typeVersion": 2,
+      "position": [-176, -16]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction toNumber(value) {\n  if (value === null || value === undefined || value === '') return 0;\n  let str = String(value).replace('R$', '').replace(/\\\"/g, '').replace(/\\s/g, '').trim();\n  if (!str) return 0;\n  if (str.includes('.') && str.includes(',')) {\n    const firstDot = str.indexOf('.');\n    const firstComma = str.indexOf(',');\n    if (firstComma > firstDot) {\n      str = str.replace(/\\./g, '').replace(',', '.');\n    } else {\n      str = str.replace(/,/g, '');\n    }\n  } else if (str.includes(',')) {\n    const parts = str.split(',');\n    if (parts.length > 2 || (parts.length === 2 && parts[1].length === 3)) {\n      str = str.replace(/,/g, '');\n    } else {\n      str = str.replace(',', '.');\n    }\n  } else if (str.includes('.')) {\n    const parts = str.split('.');\n    if (parts.length > 2 || (parts.length === 2 && parts[1].length === 3)) {\n      str = str.replace(/\\./g, '');\n    }\n  }\n  const num = Number(str);\n  return isNaN(num) ? 0 : num;\n}\nfunction pick(row, names) { for (const name of names) { if (row[name] !== undefined && row[name] !== null && row[name] !== '') return row[name]; } return ''; }\nconst rows = items.map(item => item.json || {}).filter(row => Object.keys(row).length);\nif (!rows.length) throw new Error('CSV vazio ou sem linhas parseadas pelo Spreadsheet File.');\nconst byCampaign = {};\nfor (const row of rows) {\n  const id = String(pick(row, ['campanha_id','campaign_id','Campaign ID','id']) || 'sem-id');\n  const item = byCampaign[id] || { campaign_id: id, campaign_name: String(pick(row, ['campanha_nome','campaign_name','Campaign name','name']) || id), objective: String(pick(row, ['objetivo','objective','Objective']) || 'Indefinido'), spend: 0, impressions: 0, reach: 0, clicks: 0, inline_link_clicks: 0, purchases: 0, purchase_value: 0, leads: 0, conversations: 0, frequency_sum: 0, frequency_count: 0, rows: 0 };\n  item.spend += toNumber(pick(row, ['gasto','spend','Amount spent'])); item.impressions += toNumber(pick(row, ['impressoes','impressions','Impressions'])); item.reach += toNumber(pick(row, ['alcance','reach','Reach'])); item.clicks += toNumber(pick(row, ['cliques_todos','clicks','Clicks'])); item.inline_link_clicks += toNumber(pick(row, ['cliques_link','inline_link_clicks','Link clicks'])); item.purchases += toNumber(pick(row, ['compras','purchases','Purchases'])); item.purchase_value += toNumber(pick(row, ['valor_compras','purchase_value','Purchase conversion value'])); item.leads += toNumber(pick(row, ['leads','Leads'])); item.conversations += toNumber(pick(row, ['conversas_iniciadas','messaging_conversations_started','Conversations']));\n  const frequency = toNumber(pick(row, ['frequencia','frequency','Frequency'])); if (frequency) { item.frequency_sum += frequency; item.frequency_count += 1; }\n  item.rows += 1; byCampaign[id] = item;\n}\nconst campaigns = Object.values(byCampaign).map(c => ({...c, ctr: c.impressions ? (c.inline_link_clicks || c.clicks) / c.impressions * 100 : 0, roas: c.spend ? c.purchase_value / c.spend : 0, cpa: c.purchases ? c.spend / c.purchases : null, cpl: c.leads ? c.spend / c.leads : null, costPerConversation: c.conversations ? c.spend / c.conversations : null, frequency: c.frequency_count ? c.frequency_sum / c.frequency_count : 0}));\nconst anomalies = [];\nfunction add(c, severity, metric, diagnosis, recommendation) { anomalies.push({severity, campaign_id: c.campaign_id, campaign_name: c.campaign_name, objective: c.objective, metric, diagnosis, recommendation}); }\nfor (const c of campaigns) { const objective = c.objective.toLowerCase(); if (objective.includes('venda')) { if (c.spend > 100 && c.purchases === 0) add(c, 'critica', 'compras', 'Campanha de vendas gastou sem gerar compras.', 'Pausar ou revisar evento de compra, landing page e criativo antes de ampliar verba.'); if (c.spend > 0 && c.roas > 0 && c.roas < 1.2) add(c, 'alta', 'roas', `ROAS baixo (${c.roas.toFixed(2)}).`, 'Reduzir orçamento e testar públicos/criativos com maior intenção.'); } if (objective.includes('lead')) { if (c.spend > 100 && c.leads === 0) add(c, 'critica', 'leads', 'Campanha de leads gastou sem gerar leads.', 'Verificar formulário, pixel/conversão e promessa do anúncio.'); if (c.cpl && c.cpl > 120) add(c, 'alta', 'custo_por_lead', `CPL acima do limite operacional (${c.cpl.toFixed(2)}).`, 'Trocar criativo e segmentação; revisar qualidade da oferta.'); } if (objective.includes('mensagem')) { if (c.spend > 100 && c.conversations === 0) add(c, 'critica', 'conversas', 'Campanha de mensagens gastou sem iniciar conversas.', 'Checar destino WhatsApp/Messenger e CTA.'); if (c.costPerConversation && c.costPerConversation > 35) add(c, 'alta', 'custo_por_conversa', `Custo por conversa alto (${c.costPerConversation.toFixed(2)}).`, 'Ajustar público, horários e criativo de chamada.'); } if (objective.includes('reconhecimento')) { if (c.frequency > 4) add(c, 'alta', 'frequencia', `Frequência média alta (${c.frequency.toFixed(1)}), possível fadiga.`, 'Renovar criativos e ampliar público.'); if (c.ctr > 0 && c.ctr < 0.7) add(c, 'media', 'ctr', `CTR baixo (${c.ctr.toFixed(2)}%).`, 'Testar gancho visual e primeira linha do anúncio.'); } }\nconst totals = campaigns.reduce((acc, c) => { acc.spend += c.spend; acc.purchase_value += c.purchase_value; acc.purchases += c.purchases; acc.leads += c.leads; acc.conversations += c.conversations; return acc; }, {spend: 0, purchase_value: 0, purchases: 0, leads: 0, conversations: 0});\nconst report = { generated_at: new Date().toISOString(), source: 'n8n-google-drive-csv', global_metrics: {...totals, roas: totals.spend ? totals.purchase_value / totals.spend : 0}, campaigns, anomalies, executive_summary: [`Foram analisadas ${rows.length} linhas e ${campaigns.length} campanhas.`, `Gasto total: R$ ${totals.spend.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`, `Foram encontradas ${anomalies.length} anomalias (${anomalies.filter(a => a.severity === 'critica').length} críticas).`] };\nconst prompt = `Você é um analista senior de mídia paga. Use somente os dados abaixo. Não invente métricas. Retorne JSON válido com as chaves diagnosis e recommendations (lista de objetos com priority, action, reason). Dados: ${JSON.stringify({summary: report.executive_summary, anomalies: anomalies.slice(0, 20), campaigns: campaigns.slice(0, 20)})}`;\nconst staticData = $getWorkflowStaticData('global');\n// Salvar último relatório básico para o agente Q&A usar como contexto temporário\nstaticData.last_report = JSON.stringify({generated_at: report.generated_at, global_metrics: report.global_metrics, campaigns: campaigns.slice(0,15), anomalies: anomalies.slice(0,20), executive_summary: report.executive_summary});\nstaticData.last_report_at = report.generated_at;\nreturn [{json: {report, prompt, whatsapp_to: staticData.whatsapp_to || '', min_severity: staticData.min_severity || 'alta'}}];\n"
+      },
+      "id": "1b0fed83-9bfc-416d-89b4-41810bc939d4",
+      "name": "Regras por objetivo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [96, -16]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst input = items[0].json; const report = input.report;\nlet diagnosis = 'Diagnóstico determinístico: revisar as anomalias por severidade e aplicar as recomendações operacionais listadas.';\nlet recommendations = report.anomalies.slice(0, 8).map(a => ({priority: a.severity, action: a.recommendation, reason: `${a.campaign_id}: ${a.diagnosis}`}));\nconst staticData = $getWorkflowStaticData('global');\nif (staticData.openai_api_key) {\n  try {\n    const response = await fetch('https://api.openai.com/v1/chat/completions', {\n      method: 'POST',\n      headers: {'Authorization': `Bearer ${staticData.openai_api_key}`, 'Content-Type': 'application/json'},\n      body: JSON.stringify({model: 'gpt-4o-mini', temperature: 0.2, response_format: {type: 'json_object'}, messages: [{role: 'system', content: 'Retorne apenas JSON válido. Não invente números. Se faltar dado, diga que falta dado.'}, {role: 'user', content: input.prompt}]})\n    });\n    if (!response.ok) throw new Error(`OpenAI HTTP ${response.status}`);\n    const data = await response.json();\n    const parsed = JSON.parse(data.choices?.[0]?.message?.content || '{}');\n    diagnosis = parsed.diagnosis || diagnosis;\n    recommendations = Array.isArray(parsed.recommendations) ? parsed.recommendations : recommendations;\n    report.llm = {status: 'used', model: 'gpt-4o-mini'};\n  } catch (error) {\n    report.llm = {status: 'failed_fallback_used', error: error.message};\n  }\n} else {\n  report.llm = {status: 'skipped_fallback_used', reason: 'openai_api_key ausente no n8n. Configure via Frontend.'};\n}\nreport.diagnosis = diagnosis; report.recommendations = recommendations;\n\n// Salvar relatório atualizado com diagnóstico no staticData para o Agente Q&A\nstaticData.last_report = JSON.stringify({\n  generated_at: report.generated_at,\n  global_metrics: report.global_metrics,\n  campaigns: report.campaigns.slice(0,15),\n  anomalies: report.anomalies.slice(0,20),\n  executive_summary: report.executive_summary,\n  diagnosis: diagnosis\n});\nstaticData.last_report_at = report.generated_at;\n\nconst critical = report.anomalies.filter(a => a.severity === 'critica').length; const high = report.anomalies.filter(a => a.severity === 'alta').length;\n\nconst text = [\n  '*🎯 Global Platform - Diagnóstico de Campanhas*',\n  ...report.executive_summary,\n  `⚠️ Críticas: ${critical} | Altas: ${high}`,\n  '',\n  '*📊 Diagnóstico IA:*',\n  diagnosis,\n  '',\n  '*✅ Próximas ações:*',\n  ...recommendations.slice(0, 5).map((r, i) => {\n    const campaign = r.reason ? r.reason.split(':')[0].trim() : '';\n    return `${i + 1}. ${campaign ? `*[${campaign}]* ` : ''}${r.action} (${r.priority || 'media'})`;\n  }),\n  '',\n  '_Responda com sua dúvida sobre as campanhas para falar com o especialista IA_ 🤖'\n].join('\\n');\n\nconst number = input.whatsapp_to || staticData.whatsapp_to || '';\nif (!number) throw new Error('Número WhatsApp de destino não configurado. Acesse as configurações do painel.');\nreturn [{json: {number: String(number).replace(/\\D/g, ''), text, linkPreview: false, async: true, report}}];\n"
+      },
+      "id": "fe4b742f-80d6-4d95-b8ba-3a50c7c9208a",
+      "name": "LLM + preparar WhatsApp",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, -60]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://pointerimoveis.uazapi.com/send/text",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "number", "value": "={{ $json.number }}" },
+            { "name": "text", "value": "={{ $json.text }}" },
+            { "name": "linkPreview", "value": "={{ false }}" },
+            { "name": "async", "value": "={{ true }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e1404b0b-c1c8-477c-9545-3d6cc5b4f6f1",
+      "name": "Enviar via Uazapi",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [780, -60],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "GtgN9vBlgeo9wscv",
+          "name": "Uazapi Pointer Imoveis"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "path": "global-platform/uazapi-settings",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "fb6222b2-1499-4a82-9f27-fa3c211d8acc",
+      "name": "Webhook - configurar settings",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-520, 300],
+      "webhookId": "a24798db-bbc0-4d9b-a995-255bd2d17930"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst payload = items[0].json?.body || items[0].json || {};\nconst number = String(payload.whatsapp_number || payload.whatsapp_to || '').replace(/\\D/g, '');\nif (!number) throw new Error('Informe whatsapp_number no formato internacional, exemplo 5562999999999.');\nconst data = $getWorkflowStaticData('global');\ndata.whatsapp_to = number;\ndata.min_severity = payload.min_severity || data.min_severity || 'alta';\ndata.enabled = payload.enabled !== false;\nif (payload.openai_api_key) data.openai_api_key = payload.openai_api_key;\ndata.updated_at = new Date().toISOString();\nreturn [{json: {ok: true, whatsapp_to: data.whatsapp_to, min_severity: data.min_severity, updated_at: data.updated_at}}];\n"
+      },
+      "id": "1b8437dd-fe52-4ae2-a211-26488cb6c455",
+      "name": "Salvar settings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-280, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "1a35e8d8-d78e-4488-b7ea-53862c3d4edd",
+      "name": "Responder settings",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [-40, 300]
+    },
+    {
+      "parameters": {
+        "path": "global-platform/analyze-csv",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wh-analyze-frontend-01",
+      "name": "Webhook - analisar CSV (frontend)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-656, 560],
+      "webhookId": "wh-analyze-frontend-01"
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Recebe CSV text do frontend e executa a mesma lógica de análise\nconst payload = items[0].json?.body || items[0].json || {};\nconst csvText = payload.csv_text || '';\nif (!csvText.trim()) throw new Error('csv_text vazio. Envie o conteúdo do CSV no corpo da requisição.');\n\nfunction toNumber(value) {\n  if (value === null || value === undefined || value === '') return 0;\n  let str = String(value).replace('R$', '').replace(/\\\"/g, '').replace(/\\s/g, '').trim();\n  if (!str) return 0;\n  if (str.includes('.') && str.includes(',')) {\n    const firstDot = str.indexOf('.');\n    const firstComma = str.indexOf(',');\n    if (firstComma > firstDot) {\n      str = str.replace(/\\./g, '').replace(',', '.');\n    } else {\n      str = str.replace(/,/g, '');\n    }\n  } else if (str.includes(',')) {\n    const parts = str.split(',');\n    if (parts.length > 2 || (parts.length === 2 && parts[1].length === 3)) {\n      str = str.replace(/,/g, '');\n    } else {\n      str = str.replace(',', '.');\n    }\n  } else if (str.includes('.')) {\n    const parts = str.split('.');\n    if (parts.length > 2 || (parts.length === 2 && parts[1].length === 3)) {\n      str = str.replace(/\\./g, '');\n    }\n  }\n  const num = Number(str);\n  return isNaN(num) ? 0 : num;\n}\n\nfunction pick(row, names) { for (const name of names) { if (row[name] !== undefined && row[name] !== null && row[name] !== '') return row[name]; } return ''; }\n\nconst splitLine = (line) => {\n  const result = [];\n  let current = '';\n  let inQuotes = false;\n  for (let i = 0; i < line.length; i++) {\n    const char = line[i];\n    if (char === '\"') {\n      inQuotes = !inQuotes;\n    } else if (char === ',' && !inQuotes) {\n      result.push(current.trim());\n      current = '';\n    } else {\n      current += char;\n    }\n  }\n  result.push(current.trim());\n  return result;\n};\n\n// Parse CSV\nconst lines = csvText.trim().split(/\\r?\\n/).filter(Boolean);\nif (lines.length < 2) throw new Error('CSV sem linhas de campanha.');\nconst headers = splitLine(lines[0]);\nconst rows = lines.slice(1).map(line => {\n  const vals = splitLine(line);\n  return Object.fromEntries(headers.map((h, i) => [h, vals[i] || '']));\n}).filter(row => Object.values(row).some(v => v));\n\nif (!rows.length) throw new Error('CSV vazio após parse.');\n\nconst byCampaign = {};\nfor (const row of rows) {\n  const id = String(pick(row, ['campanha_id','campaign_id','Campaign ID','id']) || 'sem-id');\n  const item = byCampaign[id] || { campaign_id: id, campaign_name: String(pick(row, ['campanha_nome','campaign_name','Campaign name','name']) || id), objective: String(pick(row, ['objetivo','objective','Objective']) || 'Indefinido'), spend: 0, impressions: 0, reach: 0, clicks: 0, inline_link_clicks: 0, purchases: 0, purchase_value: 0, leads: 0, conversations: 0, frequency_sum: 0, frequency_count: 0, rows: 0 };\n  item.spend += toNumber(pick(row, ['gasto','spend','Amount spent'])); item.impressions += toNumber(pick(row, ['impressoes','impressions','Impressions'])); item.reach += toNumber(pick(row, ['alcance','reach','Reach'])); item.clicks += toNumber(pick(row, ['cliques_todos','clicks','Clicks'])); item.inline_link_clicks += toNumber(pick(row, ['cliques_link','inline_link_clicks','Link clicks'])); item.purchases += toNumber(pick(row, ['compras','purchases','Purchases'])); item.purchase_value += toNumber(pick(row, ['valor_compras','purchase_value','Purchase conversion value'])); item.leads += toNumber(pick(row, ['leads','Leads'])); item.conversations += toNumber(pick(row, ['conversas_iniciadas','messaging_conversations_started','Conversations']));\n  const frequency = toNumber(pick(row, ['frequencia','frequency','Frequency'])); if (frequency) { item.frequency_sum += frequency; item.frequency_count += 1; }\n  item.rows += 1; byCampaign[id] = item;\n}\nconst campaigns = Object.values(byCampaign).map(c => ({...c, ctr: c.impressions ? (c.inline_link_clicks || c.clicks) / c.impressions * 100 : 0, roas: c.spend ? c.purchase_value / c.spend : 0, cpa: c.purchases ? c.spend / c.purchases : null, cpl: c.leads ? c.spend / c.leads : null, costPerConversation: c.conversations ? c.spend / c.conversations : null, frequency: c.frequency_count ? c.frequency_sum / c.frequency_count : 0}));\nconst anomalies = [];\nfunction add(c, severity, metric, diagnosis, recommendation) { anomalies.push({severity, campaign_id: c.campaign_id, campaign_name: c.campaign_name, objective: c.objective, metric, diagnosis, recommendation}); }\nfor (const c of campaigns) { const objective = c.objective.toLowerCase(); if (objective.includes('venda')) { if (c.spend > 100 && c.purchases === 0) add(c, 'critica', 'compras', 'Campanha de vendas gastou sem gerar compras.', 'Pausar ou revisar evento de compra, landing page e criativo antes de ampliar verba.'); if (c.spend > 0 && c.roas > 0 && c.roas < 1.2) add(c, 'alta', 'roas', `ROAS baixo (${c.roas.toFixed(2)}).`, 'Reduzir orçamento e testar públicos/criativos com maior intenção.'); } if (objective.includes('lead')) { if (c.spend > 100 && c.leads === 0) add(c, 'critica', 'leads', 'Campanha de leads gastou sem gerar leads.', 'Verificar formulário, pixel/conversão e promessa do anúncio.'); if (c.cpl && c.cpl > 120) add(c, 'alta', 'custo_por_lead', `CPL acima do limite operacional (${c.cpl.toFixed(2)}).`, 'Trocar criativo e segmentação; revisar qualidade da oferta.'); } if (objective.includes('mensagem')) { if (c.spend > 100 && c.conversations === 0) add(c, 'critica', 'conversas', 'Campanha de mensagens gastou sem iniciar conversas.', 'Checar destino WhatsApp/Messenger e CTA.'); if (c.costPerConversation && c.costPerConversation > 35) add(c, 'alta', 'custo_por_conversa', `Custo por conversa alto (${c.costPerConversation.toFixed(2)}).`, 'Ajustar público, horários e criativo de chamada.'); } if (objective.includes('reconhecimento')) { if (c.frequency > 4) add(c, 'alta', 'frequencia', `Frequência média alta (${c.frequency.toFixed(1)}), possível fadiga.`, 'Renovar criativos e ampliar público.'); if (c.ctr > 0 && c.ctr < 0.7) add(c, 'media', 'ctr', `CTR baixo (${c.ctr.toFixed(2)}%).`, 'Testar gancho visual e primeira linha do anúncio.'); } }\nconst totals = campaigns.reduce((acc, c) => { acc.spend += c.spend; acc.purchase_value += c.purchase_value; acc.purchases += c.purchases; acc.leads += c.leads; acc.conversations += c.conversations; return acc; }, {spend: 0, purchase_value: 0, purchases: 0, leads: 0, conversations: 0});\n\nlet diagnosis = 'Diagnóstico determinístico: revisar anomalias por severidade.';\nlet recommendations = anomalies.slice(0, 8).map(a => ({priority: a.severity, action: a.recommendation, reason: `${a.campaign_id}: ${a.diagnosis}`}));\nlet llm_status = 'skipped';\n\nconst staticData = $getWorkflowStaticData('global');\nif (staticData.openai_api_key) {\n  try {\n    const prompt = `Você é um analista senior de mídia paga. Use somente os dados abaixo. Não invente métricas. Retorne JSON com as chaves diagnosis e recommendations (lista com priority, action, reason). Dados: ${JSON.stringify({anomalies: anomalies.slice(0,15), campaigns: campaigns.slice(0,10).map(c => ({id: c.campaign_id, name: c.campaign_name, objective: c.objective, spend: c.spend.toFixed(2), roas: c.roas.toFixed(2), leads: c.leads, purchases: c.purchases, conversations: c.conversations}))})} `;\n    const resp = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: {'Authorization': `Bearer ${staticData.openai_api_key}`, 'Content-Type': 'application/json'}, body: JSON.stringify({model: 'gpt-4o-mini', temperature: 0.2, response_format: {type: 'json_object'}, messages: [{role: 'system', content: 'Retorne apenas JSON válido.'}, {role: 'user', content: prompt}]}) });\n    if (resp.ok) { const data = await resp.json(); const parsed = JSON.parse(data.choices?.[0]?.message?.content || '{}'); diagnosis = parsed.diagnosis || diagnosis; recommendations = Array.isArray(parsed.recommendations) ? parsed.recommendations : recommendations; llm_status = 'used'; }\n  } catch(e) { llm_status = 'failed:' + e.message; }\n}\n\nconst report = { generated_at: new Date().toISOString(), source: 'frontend-csv', global_metrics: {...totals, roas: totals.spend ? totals.purchase_value / totals.spend : 0, campaigns_count: campaigns.length}, campaigns, anomalies, diagnosis, recommendations, llm_status, executive_summary: [`Analisadas ${rows.length} linhas e ${campaigns.length} campanhas.`, `Gasto total: R$ ${totals.spend.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`, `${anomalies.length} anomalias encontradas (${anomalies.filter(a=>a.severity==='critica').length} críticas).`] };\n\n// Salvar contexto para o Q&A agent\nstaticData.last_report = JSON.stringify({generated_at: report.generated_at, global_metrics: report.global_metrics, campaigns: campaigns.slice(0,15), anomalies: anomalies.slice(0,20), executive_summary: report.executive_summary, diagnosis: diagnosis});\nstaticData.last_report_at = report.generated_at;\n\n// Enviar WhatsApp se configurado\nconst whatsapp_to = staticData.whatsapp_to || '';\nconst critical = anomalies.filter(a => a.severity === 'critica').length;\nconst high = anomalies.filter(a => a.severity === 'alta').length;\nconst waText = ['*🎯 Global Platform — Análise via Frontend*', ...report.executive_summary, `⚠️ Críticas: ${critical} | Altas: ${high}`, '', `*📊 Diagnóstico:*`, diagnosis, '', `*✅ Top ações:*`, ...recommendations.slice(0,5).map((r,i)=>{ const campaign = r.reason ? r.reason.split(':')[0].trim() : ''; return `${i+1}. ${campaign ? `*[${campaign}]* ` : ''}${r.action} (${r.priority||'media'})`; }), '', '_Responda com sua dúvida sobre as campanhas para o especialista IA 🤖_'].join('\\n');\n\nreturn [{json: {report, send_whatsapp: !!whatsapp_to, whatsapp_to: String(whatsapp_to).replace(/\\D/g,''), whatsapp_text: waText}}];\n"
+      },
+      "id": "code-analyze-frontend-01",
+      "name": "Analisar CSV do frontend",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-400, 560]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false, "leftValue": "", "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "cond-has-number",
+              "leftValue": "={{ $json.send_whatsapp }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-send-whatsapp-frontend",
+      "name": "Tem número configurado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-120, 560]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://pointerimoveis.uazapi.com/send/text",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "number", "value": "={{ $json.whatsapp_to }}" },
+            { "name": "text", "value": "={{ $json.whatsapp_text }}" },
+            { "name": "linkPreview", "value": "={{ false }}" },
+            { "name": "async", "value": "={{ true }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "http-send-wa-frontend",
+      "name": "Enviar WhatsApp (frontend)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [160, 480],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "GtgN9vBlgeo9wscv",
+          "name": "Uazapi Pointer Imoveis"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $('Analisar CSV do frontend').item.json.report }}",
+        "options": {}
+      },
+      "id": "resp-analyze-frontend",
+      "name": "Retornar relatório ao frontend",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [400, 560]
+    },
+    {
+      "parameters": {
+        "path": "global-platform/whatsapp-qa",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wh-qa-agent-01",
+      "name": "Webhook - Q&A WhatsApp (Uazapi)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-656, 900],
+      "webhookId": "c47920fd-dd12-4e9c-a8b4-477cf3ef2012"
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Agente Especialista Q&A — recebe mensagem do Uazapi e prepara entrada\nconst payload = items[0].json?.body || items[0].json || {};\n\n// 1. Extrair JID/telefone e mensagem\nconst message = String(\n  payload.message?.text || payload.data?.message?.conversation || \n  payload.text || payload.body || payload.message || ''\n).trim();\n\nconst senderNumber = String(\n  payload.data?.key?.remoteJid || payload.from || payload.number || \n  payload.sender || ''\n).replace('@s.whatsapp.net', '').replace(/\\D/g, '');\n\n// 2. Checar se a mensagem foi enviada pelo próprio número (fromMe) para evitar loops\nconst fromMe = payload.data?.key?.fromMe === true || payload.fromMe === true;\nconst staticData = $getWorkflowStaticData('global');\nconst myNumber = '556294805944';\nconst isMyNumber = senderNumber === myNumber.replace(/\\D/g,'');\n\nif (fromMe || isMyNumber || !message || !senderNumber) {\n  return [{json: {skip: true, reason: 'Mensagem inválida, echo ou do próprio número'}}];\n}\n\n// 3. Detectar se é uma pergunta sobre campanhas/tráfego\nconst keywords = ['campanha', 'roas', 'cpl', 'cpc', 'ctr', 'cpm', 'leads', 'conversão', 'verba', 'orçamento', 'otimizar', 'pausar', 'escalar', 'resultado', 'meta', 'facebook', 'anuncio', 'anúncio', 'tráfego', 'performance', 'métrica', 'relatório', 'análise', 'frequência', 'alcance', 'impressões', 'custo', 'roi', 'compra', 'venda', 'gancho', 'sugere', 'sugestão'];\nconst msgLower = message.toLowerCase();\nconst isCampaignQuestion = keywords.some(k => msgLower.includes(k)) || msgLower.includes('?') || msgLower.length > 8;\n\nif (!isCampaignQuestion) {\n  return [{json: {skip: true, reason: 'Mensagem não parece ser uma pergunta sobre campanhas'}}];\n}\n\n// 4. Carregar contexto do último relatório de campanhas\nconst lastReportStr = staticData.last_report || '';\nlet contextSummary = 'Nenhum relatório de campanhas foi analisado ainda. Peça para o usuário enviar um CSV pelo painel.';\nif (lastReportStr) {\n  try {\n    const r = JSON.parse(lastReportStr);\n    const gm = r.global_metrics || {};\n    const lines = [\n      `Relatório gerado: ${r.generated_at ? new Date(r.generated_at).toLocaleString('pt-BR') : 'data desconhecida'}`,\n      `Gasto total: R$ ${(gm.spend||0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,\n      `Compras: ${gm.purchases||0} | Leads: ${gm.leads||0} | Conversas: ${gm.conversations||0}`,\n      `Campanhas analisadas: ${(r.campaigns||[]).length} | Anomalias: ${(r.anomalies||[]).length}`,\n      '',\n      'KPIs por campanha:',\n      ...(r.campaigns||[]).slice(0,12).map(c =>\n        `  - ${c.campaign_name||c.campaign_id} (${c.objective||'?'}): gasto R$${(c.spend||0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, ROAS ${(c.roas||0).toFixed(2)}, leads ${c.leads||0}, compras ${c.purchases||0}, conversas ${c.conversations||0}`\n      ),\n      '',\n      'Anomalias detectadas:',\n      ...(r.anomalies||[]).slice(0,12).map(a =>\n        `  - [${a.severity.toUpperCase()}] ${a.campaign_name||a.campaign_id}: ${a.diagnosis}`\n      ),\n    ];\n    if (r.diagnosis) lines.push('', 'Diagnóstico IA anterior:', r.diagnosis);\n    contextSummary = lines.join('\\n');\n  } catch(e) { contextSummary = 'Erro ao carregar contexto do relatório: ' + e.message; }\n}\n\nreturn [{json: {skip: false, to: senderNumber, message: message, contextSummary: contextSummary}}];\n"
+      },
+      "id": "prepare-input-qa",
+      "name": "Prepare Input Q&A",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-420, 900]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-skip",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-should-respond-qa",
+      "name": "Deve responder Q&A?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-180, 900]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.message }}",
+        "options": {
+          "systemMessage": "=Você é um Especialista Sênior em Performance Marketing e Análise de Campanhas Facebook/Meta Ads com mais de 10 anos de experiência.\n\nBenchmarks Meta Ads Brasil 2024-2025:\n- CTR Link: 1-3% bom, <0.5% ruim, >4% excelente\n- ROAS mínimo saudável: 2x (básico), 3x+ (lucro), 5x+ (excelente)\n- CPL imóveis: R$15-80, cursos: R$5-30, B2B: R$30-200\n- Frequência ideal: 1.5-3x (brand), <2x (conversão)\n- Frequência >4x = fadiga criativa urgente\n\nDiagnósticos comuns:\n- ROAS caindo + CPM subindo = saturação de audiência\n- CTR caindo + frequência alta = trocar criativo urgente\n- Zero compras com gasto = pixel/evento quebrado\n- Leads parando = formulário quebrado ou CBO otimizando errado\n\nQuando pausar: ROAS < 1 por 3+ dias | CPL > 3x meta por 5+ dias | zero conversões com gasto alto\nQuando escalar: ROAS estável acima da meta por 7+ dias | frequência < 2x\n\nRegras:\n1. Responda SEMPRE em português brasileiro.\n2. Seja direto, prático e acionável — dê recomendações claras.\n3. Baseie suas respostas nos dados do relatório abaixo quando aplicável. Se o usuário perguntar algo fora do relatório (e.g. conceitos gerais de marketing), responda de forma profissional usando seu conhecimento geral de mídia paga.\n4. Nunca invente dados ou campanhas que não estejam no contexto do relatório.\n5. Formate com bullets para facilitar leitura no WhatsApp.\n6. Use emojis moderadamente para WhatsApp.\n\nDados do último relatório de campanhas:\n{{ $json.contextSummary }}\n",
+          "returnIntermediateSteps": true
+        }
+      },
+      "id": "agent-qa-fb-ads",
+      "name": "Agente Q&A Especialista FB Ads",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [120, 900]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list"
+        },
+        "options": {}
+      },
+      "id": "openai-chat-model",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [0, 1100]
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Prepare Input Q&A').item.json.to }}",
+        "tableName": "n8n_historico_mensagens",
+        "contextWindowLength": 50
+      },
+      "id": "postgres-chat-memory",
+      "name": "Postgres Chat Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.3,
+      "position": [200, 1100]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "set-qa-to",
+              "name": "to",
+              "value": "={{ $('Prepare Input Q&A').item.json.to }}",
+              "type": "string"
+            },
+            {
+              "id": "set-qa-answer",
+              "name": "answer",
+              "value": "={{ $json.output }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "format-response-qa",
+      "name": "Format Response Q&A",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [380, 900]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://pointerimoveis.uazapi.com/send/text",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "number", "value": "={{ $json.to }}" },
+            { "name": "text", "value": "={{ $json.answer }}" },
+            { "name": "linkPreview", "value": "={{ false }}" },
+            { "name": "async", "value": "={{ true }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "http-respond-qa",
+      "name": "Responder via Uazapi Q&A",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [600, 820],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "GtgN9vBlgeo9wscv",
+          "name": "Uazapi Pointer Imoveis"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"ok\": true }",
+        "options": {}
+      },
+      "id": "resp-qa-webhook",
+      "name": "Responder Uazapi webhook (200)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [820, 900]
+    }
+  ],
+  "connections": {
+    "Google Drive - novo CSV": {
+      "main": [[{ "node": "Baixar CSV", "type": "main", "index": 0 }]]
+    },
+    "Baixar CSV": {
+      "main": [[{ "node": "Ler CSV", "type": "main", "index": 0 }]]
+    },
+    "Ler CSV": {
+      "main": [[{ "node": "Regras por objetivo", "type": "main", "index": 0 }]]
+    },
+    "Regras por objetivo": {
+      "main": [[{ "node": "LLM + preparar WhatsApp", "type": "main", "index": 0 }]]
+    },
+    "LLM + preparar WhatsApp": {
+      "main": [[{ "node": "Enviar via Uazapi", "type": "main", "index": 0 }]]
+    },
+    "Webhook - configurar settings": {
+      "main": [[{ "node": "Salvar settings", "type": "main", "index": 0 }]]
+    },
+    "Salvar settings": {
+      "main": [[{ "node": "Responder settings", "type": "main", "index": 0 }]]
+    },
+    "Webhook - analisar CSV (frontend)": {
+      "main": [[{ "node": "Analisar CSV do frontend", "type": "main", "index": 0 }]]
+    },
+    "Analisar CSV do frontend": {
+      "main": [[{ "node": "Tem número configurado?", "type": "main", "index": 0 }]]
+    },
+    "Tem número configurado?": {
+      "main": [
+        [{ "node": "Enviar WhatsApp (frontend)", "type": "main", "index": 0 }],
+        [{ "node": "Retornar relatório ao frontend", "type": "main", "index": 0 }]
+      ]
+    },
+    "Enviar WhatsApp (frontend)": {
+      "main": [[{ "node": "Retornar relatório ao frontend", "type": "main", "index": 0 }]]
+    },
+    "Webhook - Q&A WhatsApp (Uazapi)": {
+      "main": [[{ "node": "Prepare Input Q&A", "type": "main", "index": 0 }]]
+    },
+    "Prepare Input Q&A": {
+      "main": [[{ "node": "Deve responder Q&A?", "type": "main", "index": 0 }]]
+    },
+    "Deve responder Q&A?": {
+      "main": [
+        [{ "node": "Responder Uazapi webhook (200)", "type": "main", "index": 0 }],
+        [{ "node": "Agente Q&A Especialista FB Ads", "type": "main", "index": 0 }]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [[{ "node": "Agente Q&A Especialista FB Ads", "type": "ai_languageModel", "index": 0 }]]
+    },
+    "Postgres Chat Memory": {
+      "ai_memory": [[{ "node": "Agente Q&A Especialista FB Ads", "type": "ai_memory", "index": 0 }]]
+    },
+    "Agente Q&A Especialista FB Ads": {
+      "main": [[{ "node": "Format Response Q&A", "type": "main", "index": 0 }]]
+    },
+    "Format Response Q&A": {
+      "main": [[{ "node": "Responder via Uazapi Q&A", "type": "main", "index": 0 }]]
+    },
+    "Responder via Uazapi Q&A": {
+      "main": [[{ "node": "Responder Uazapi webhook (200)", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": { "templateCredsSetupCompleted": true },
+  "pinData": {}
+}

@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-labelledby="title desc">
+  <title id="title">Global Platform</title>
+  <desc id="desc">Marca circular com monograma P inspirado na bandeira dos Estados Unidos.</desc>
+  <defs>
+    <clipPath id="mark-clip">
+      <path d="M58 184 88 56h77c32 0 53 18 53 45 0 33-25 53-65 53h-45l-7 30H58Zm61-76h42c14 0 22-6 22-17 0-9-7-14-19-14h-38l-7 31Z"/>
+    </clipPath>
+    <filter id="soft-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#000" flood-opacity=".35"/>
+    </filter>
+  </defs>
+  <circle cx="120" cy="120" r="112" fill="#05070b" filter="url(#soft-shadow)"/>
+  <g clip-path="url(#mark-clip)">
+    <rect x="42" y="48" width="186" height="24" fill="#B31942"/>
+    <rect x="42" y="72" width="186" height="24" fill="#fff"/>
+    <rect x="42" y="96" width="186" height="24" fill="#B31942"/>
+    <rect x="42" y="120" width="186" height="24" fill="#fff"/>
+    <rect x="42" y="144" width="186" height="24" fill="#B31942"/>
+    <rect x="42" y="168" width="186" height="24" fill="#fff"/>
+    <rect x="42" y="48" width="92" height="82" fill="#0A3161"/>
+    <g fill="#fff" opacity=".92">
+      <path d="m61 62 3 8 8 .2-6.3 5 2.3 8-7-4.5-7 4.5 2.3-8-6.3-5 8-.2 3-8Z"/>
+      <path d="m94 62 3 8 8 .2-6.3 5 2.3 8-7-4.5-7 4.5 2.3-8-6.3-5 8-.2 3-8Z"/>
+      <path d="m78 91 3 8 8 .2-6.3 5 2.3 8-7-4.5-7 4.5 2.3-8-6.3-5 8-.2 3-8Z"/>
+      <path d="m111 91 3 8 8 .2-6.3 5 2.3 8-7-4.5-7 4.5 2.3-8-6.3-5 8-.2 3-8Z"/>
+    </g>
+  </g>
+</svg>
